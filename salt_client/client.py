@@ -13,7 +13,11 @@ class SaltClient(object):
         self.verify_ssl_cert = kwargs.get("verify_ssl_cert", False)
 
     def login(self):
-        req = requests.post(self.salt_host + "/login", data={"eauth": "pam", "username": self.username, "password": self.password}, headers={"Accept": "application/json"}, verify=self.verify_ssl_cert, timeout=5.0)
+        req = requests.post(self.salt_host + "/login",
+                            json={"eauth": "pam", "username": self.salt_username, "password": self.salt_password},
+                            headers={"Accept": "application/json", "Content-Type": "application/json"},
+                            verify=self.verify_ssl_cert,
+                            timeout=5.0)
         if req.status_code != 200:
             raise ConnectionException("Signing in to salt (%s) failed with status code %s (body %s)" % (self.salt_host, req.status_code, req.text))
         logging.debug("Salt login response: %s - %s", req.status_code, req.text)
@@ -24,9 +28,9 @@ class SaltClient(object):
         return self.token
 
     def _get_headers(self):
-        return {"Accept": "application/json", "X-Auth-Token": self.token}
+        return {"Accept": "application/json", "X-Auth-Token": self.token, "Content-Type": "application/json"}
 
-    def is_minion_reachable(self, minion_id):
+    def is_minion_reachable(self, minion_id, vm_id=None):
         req = requests.post(self.salt_host, data={"client": "local", "tgt": minion_id, "fun": "test.ping"}, headers=self._get_headers(), verify=self.verify_ssl_cert)
         logging.debug("Salt ping response: %s - %s", req.status_code, req.text)
         resp = req.json()
@@ -47,16 +51,13 @@ class SaltClient(object):
         resp = requests.post(self.salt_host, data={"client": "runner", "fun": "jobs.lookup_jid", "jid": job_id}, headers=self._get_headers(), verify=self.verify_ssl_cert)
         logging.debug("lookup_jid response: %s - %s", resp.status_code, resp.text)
         data = resp.json()
-        as
 
-    def run_command(self, target, command, args):
-        resp = requests.post(self.salt_host, data={"client": "local", "tgt": target, "fun": command, "arg": args}, headers=self._get_headers(), verify=self.verify_ssl_cert)
+    def run_command(self, target, command, args=None):
+        send_body = {}
+        if args is not None:
+            send_body = {"client": "local", "tgt": target, "fun": command, "arg": args}
+        else:
+            send_body = {"client": "local", "tgt": target, "fun": command}
+        resp = requests.post(self.salt_host, json=send_body, headers=self._get_headers(), verify=self.verify_ssl_cert)
         logging.debug("Salt cmd response: %s - %s", resp.status_code, resp.text)
-        data = resp.json()
-
-        machines = data["return"][0]
-        for machine, machine_data in machines.items():
-            for _, command_data in machine_data.items():
-                if not command_data["result"]:
-                    return False
-        return True
+        return resp.json()
